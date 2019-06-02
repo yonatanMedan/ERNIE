@@ -9,8 +9,8 @@ logging.basicConfig(level=logging.INFO)
 tokenizer = BertTokenizer.from_pretrained('../data/ernie_base')
 
 # Tokenized input
-text_a = "Who was Jim Henson ? "
-text_b = "Jim Henson was a puppeteer ."
+text_a = "Bill Gates spouse is ?"
+text_b = "bill gates wife name is Melinda Gates"
 
 # ### get tag annotations (indexes of enteties) with tagme
 
@@ -34,7 +34,7 @@ with open("../data/kg_embed/entity_map.txt") as fin:
 
 # +
 
-ent_map["Jim Henson"]
+ent_map["Bill Gates"]
 
 
 # -
@@ -69,17 +69,21 @@ entities_b
 
 tokens = ["[CLS]"] + tokens_a + ["[SEP]"] + tokens_b + ["[SEP]"]
 ents = ["UNK"] + entities_a + ["UNK"] + entities_b + ["UNK"]
-segments_ids = [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1]
+segments_ids = [0,0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,1]
 input_mask = [1] * len(tokens)
 
 input_mask
 
 # +
 # Mask a token that we will try to predict back with `BertForMaskedLM`
-masked_index = 8
+# masked_index = 8
 
-tokens[masked_index] = '[MASK]'
-tokens[4] = '[MASK]'
+# tokens[masked_index] = '[MASK]'
+tokens[12] = '[MASK]'
+
+# tokens[12] = '[MASK]'
+
+# tokens[7] = '[MASK]'
 
 # -
 
@@ -119,19 +123,23 @@ ent_mask
 
 print(indexed_tokens, indexed_ents)
 
+indexed_tokens
+
 # Convert inputs to PyTorch tensors
 tokens_tensor = torch.tensor([indexed_tokens])
 ents_tensor = torch.tensor([indexed_ents])
 segments_tensors = torch.tensor([segments_ids])
 ent_mask = torch.tensor([ent_mask])
 
+
+
 # Load pre-trained model (weights)
-model, _ = BertForMaskedLM.from_pretrained('ernie_base')
+model, _ = BertForMaskedLM.from_pretrained('../data/ernie_base')
 model.eval()
 
 vecs = []
 vecs.append([0]*100)
-with open("kg_embed/entity2vec.vec", 'r') as fin:
+with open("../data/kg_embed/entity2vec.vec", 'r') as fin:
     for line in fin:
         vec = line.strip().split('\t')
         vec = [float(x) for x in vec]
@@ -147,10 +155,34 @@ ent_mask = ent_mask.to("cuda")
 segments_tensors = segments_tensors.to('cuda')
 model.to('cuda')
 
+len(tokens_tensor[0])
+
 # Predict all tokens
 with torch.no_grad():
     predictions = model(tokens_tensor, ents_tensor, ent_mask, segments_tensors)
     # confirm we were able to predict 'henson'
     predicted_index = torch.argmax(predictions[0, masked_index]).item()
     predicted_token = tokenizer.convert_ids_to_tokens([predicted_index])[0]
-    assert predicted_token == 'henson'
+#     assert predicted_token == 'henson'
+    predicted_index = list(map(lambda x:x.item(),list(torch.argmax(predictions[0, :],1))))
+    predicted_token = tokenizer.convert_ids_to_tokens(predicted_index)
+    
+
+predicted_token
+
+predicted_index = list(map(lambda x:x.item(),list(tokens_tensor[0, :])))
+predicted_token = tokenizer.convert_ids_to_tokens(predicted_index)
+
+predicted_token
+
+predicted_token
+
+predicted_index
+
+predictions.shape
+
+len(tokens_tensor[0])
+
+predictions[0, masked_index]
+
+
