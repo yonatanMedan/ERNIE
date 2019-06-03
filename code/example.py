@@ -125,13 +125,15 @@ ents_tensor = torch.tensor([indexed_ents])
 segments_tensors = torch.tensor([segments_ids])
 ent_mask = torch.tensor([ent_mask])
 
+ent_mask
+
 # Load pre-trained model (weights)
-model, _ = BertForMaskedLM.from_pretrained('ernie_base')
+model, _ = BertForMaskedLM.from_pretrained('../data/ernie_base')
 model.eval()
 
 vecs = []
 vecs.append([0]*100)
-with open("kg_embed/entity2vec.vec", 'r') as fin:
+with open("../data/kg_embed/entity2vec.vec", 'r') as fin:
     for line in fin:
         vec = line.strip().split('\t')
         vec = [float(x) for x in vec]
