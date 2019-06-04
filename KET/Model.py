@@ -68,6 +68,46 @@ with torch.no_grad():
 
 
 # +
+class EntEmbedingLayer(torch.nn.module):
+    def __init__(vocab_sz_ent:int,ctx_len:it,d_model_ent:int):
+        super().__init__()
+        self.ent_enc = nn.Embedding(vocab_sz_ent, d_model_ent)
+
+    def forword(ent_ids_tensor):
+        return self.ent_enc(ent_ids_tensor)
+
+class MaskedKnowledgeAGGBlock(torch.nn.module):
+    def __init__(tkn_conf,ent_conf):
+        self.mhra_wrd = MultiHeadRelativeAttention(**tkn_conf)
+        self.mhra_ent = MultiHeadRelativeAttention(**ent_conf)
+        self.dense = nn.Linear(tkn_conf.d_model, tkn_conf.intermediate_size)
+        self.dense_ent = nn.Linear(ent_conf.d_model, tkn_conf.intermediate_size)
+        self.act = nn.GeLU()
+    def forward(self,hidden,hidden_ent,mask,mask_ent):
+        hidden = mhra_wrd(hidden,mask)
+        hidden_ent = mhra_ent(hidden_ent,mask_ent)
+        intermediate = dense(hidden)+self.dense_ent(hidden_ent)
+        intermediate = act(intermediate_size)
+    
+class KETFeedForward(torch.nn.module):
+    def __init__(self, wrd_conf,ent_conf):
+        super(BertOutput, self).__init__()
+        self.dense = nn.Linear(config.intermediate_size, wrd_conf.d_model)
+        self.dense_ent = nn.Linear(config.intermediate_size, ent_conf.d_model)
+        self.LayerNorm = nn.LayerNorm(wrd_conf.d_model, eps=1e-12)
+        self.LayerNorm_ent = nn.LayerNorm(ent_conf.d_model, eps=1e-12)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states_, input_tensor, input_tensor_ent):
+        hidden_states = self.dense(hidden_states_)
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+
+        hidden_states_ent = self.dense_ent(hidden_states_)
+        hidden_states_ent = self.dropout(hidden_states_ent)
+        hidden_states_ent = self.LayerNorm_ent(hidden_states_ent + input_tensor_ent)
+
+
 class MaskedKnowledgeAGG(torch.nn.module):
     def __init__(self,
                  vocab_sz:int,
@@ -105,10 +145,11 @@ class MaskedKnowledgeAGG(torch.nn.module):
                 ):
         super().__init__()
         # get id as inputs and outputs vectors
-        self.token_enc = nn.Embedding(vocab_sz, d_model)
-        self.ent_enc = nn.Embedding(vocab_sz_ent, d_model_ent)
-        self.pos_enc_tokens = nn.Embedding(ctx_len, d_model)
+        # embeding should be done in before this module layers
+        # self.token_enc = nn.Embedding(vocab_sz, d_model)
+
         self.pos_enc_ent = nn.Embedding(ctx_len, d_model_ent)
+        self.pos_enc_tokens = nn.Embedding(ctx_len, d_model)
         self.drop_emb_token = nn.Dropout(embed_p)
         self.drop_emb_ent = nn.Dropout(embed_p_ent)
 
@@ -123,7 +164,8 @@ class MaskedKnowledgeAGG(torch.nn.module):
         self.ent_attention =[]
         self.tkn_attention = []
         for layer in range(n_layers):
-            self.ent_attention.append(DecoderLayer(n_heads_ent, d_model_ent, d_head_ent, d_inner_ent, resid_p=resid_p_ent, attn_p=attn_p_ent,ff_p=ff_p_ent, bias=bias, scale=scale, act=act, double_drop=double_drop,attn_cls=attn_cls))
+            self.ent_attention.append(attn_cls(n_heads_ent, d_model_ent, d_head_ent, d_inner_ent, resid_p=resid_p_ent, attn_p=attn_p_ent,ff_p=ff_p_ent, bias=bias, scale=scale, act=act, double_drop=double_drop,attn_cls=attn_cls))
+            self.tkn_attention.append(attn_cls(n_heads, d_model, d_head, d_inner, resid_p=resid_p, attn_p=attn_p,ff_p=ff_p, bias=bias, scale=scale, act=act, double_drop=double_drop,attn_cls=attn_cls))
 
             
 
