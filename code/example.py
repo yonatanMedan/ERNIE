@@ -131,12 +131,6 @@ ents_tensor = torch.tensor([indexed_ents])
 segments_tensors = torch.tensor([segments_ids])
 ent_mask = torch.tensor([ent_mask])
 
-<<<<<<< HEAD
-ent_mask
-=======
-
->>>>>>> 92086dfe0c0651513462547d7b5d15ceb9df0a39
-
 # Load pre-trained model (weights)
 model, _ = BertForMaskedLM.from_pretrained('../data/ernie_base')
 model.eval()
@@ -170,7 +164,7 @@ with torch.no_grad():
 #     assert predicted_token == 'henson'
     predicted_index = list(map(lambda x:x.item(),list(torch.argmax(predictions[0, :],1))))
     predicted_token = tokenizer.convert_ids_to_tokens(predicted_index)
-    
+
 
 predicted_token
 

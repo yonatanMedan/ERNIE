@@ -12,17 +12,26 @@
 #     language: python
 #     name: conda_fastai
 # ---
+
 from enum import Enum
 
 Activation = Enum('Activation', 'ReLU Swish GeLU')
+
+feed_forward??
 
 import torch
 from pytorch_pretrained_bert import TransfoXLTokenizer, TransfoXLModel, TransfoXLLMHeadModel
 
 import torch.nn as nn
 
-from fastai.text.models import MultiHeadRelativeAttention,DecoderLayer
+from torch.nn.modules.activation import ReLU
 
+from fastai.text.models import MultiHeadRelativeAttention,DecoderLayer,MultiHeadAttention,feed_forward
+
+
+MultiHeadRelativeAttention??
+
+MultiHeadAttention??
 
 model = TransfoXLLMHeadModel.from_pretrained('transfo-xl-wt103')
 model.eval()
@@ -47,9 +56,9 @@ tokens_tensor_2 = torch.tensor([indexed_tokens_2])
 
 # +
 # If you have a GPU, put everything on cuda
-tokens_tensor_1 = tokens_tensor_1.to('cpu')
-tokens_tensor_2 = tokens_tensor_2.to('cpu')
-model.to('cpu')
+tokens_tensor_1 = tokens_tensor_1.to('cuda')
+tokens_tensor_2 = tokens_tensor_2.to('cuda')
+model.to('cuda')
 
 with torch.no_grad():
     # Predict all tokens
@@ -66,24 +75,53 @@ predicted_token = tokenizer.convert_ids_to_tokens(predicted_index)
 with torch.no_grad():
     hidden_2, mems_2 = model.transformer(tokens_tensor_2, mems=mems_1)
 
+hidden_2
+
+len(tokenizer.counter.items())
+
+TransfoXLModel??
+
+model.children
+
+default_wrd_conf = {
+    "d_model":1024,
+    "embed_p":0.,
+    "n_heads":5,
+    "d_head":64,
+    "resid_p":0.0,
+    "attn_p":0.0,
+    "bias": False,
+    "scale":True,
+    "intermediate_size":3072,
+    "ff_p":0.
+}
+
+default_ent_conf = default_wrd_conf.copy()
+
+default_ent_conf["d_model"] = 100
+
+mhra_keys = ["d_model","n_heads","d_head","resid_p","attn_p","bias","scale"]
+
+{ k: default_ent_conf[k] for k in ["d_model","n_heads","d_head","resid_p","attn_p","bias","scale"] }
+
 
 # +
-class EntEmbedingLayer(torch.nn.module):
-    def __init__(vocab_sz_ent:int,ctx_len:it,d_model_ent:int):
+class EntEmbedingLayer(torch.nn.Module):
+    def __init__(vocab_sz_ent:int,ctx_len:int,d_model_ent:int):
         super().__init__()
         self.ent_enc = nn.Embedding(vocab_sz_ent, d_model_ent)
 
     def forword(ent_ids_tensor):
         return self.ent_enc(ent_ids_tensor)
 
-class KETFeedForward(torch.nn.module):
+class KETFeedForward(torch.nn.Module):
     def __init__(self, wrd_conf,ent_conf):
-        super(BertOutput, self).__init__()
-        self.dense = nn.Linear(wrd_conf.intermediate_size, wrd_conf.d_model)
-        self.dense_ent = nn.Linear(wrd_conf.intermediate_size, ent_conf.d_model)
-        self.LayerNorm = nn.LayerNorm(wrd_conf.d_model, eps=1e-12)
-        self.LayerNorm_ent = nn.LayerNorm(ent_conf.d_model, eps=1e-12)
-        self.dropout = nn.Dropout(wrd_conf.hidden_dropout_prob)
+        super().__init__()
+        self.dense = nn.Linear(wrd_conf["intermediate_size"], wrd_conf["d_model"])
+        self.dense_ent = nn.Linear(wrd_conf["intermediate_size"], ent_conf["d_model"])
+        self.LayerNorm = nn.LayerNorm(wrd_conf["d_model"], eps=1e-12)
+        self.LayerNorm_ent = nn.LayerNorm(ent_conf["d_model"], eps=1e-12)
+        self.dropout = nn.Dropout(wrd_conf["ff_p"])
 
     def forward(self, hidden_states_, input_tensor, input_tensor_ent):
         hidden_states = self.dense(hidden_states_)
@@ -95,14 +133,15 @@ class KETFeedForward(torch.nn.module):
         hidden_states_ent = self.LayerNorm_ent(hidden_states_ent + input_tensor_ent)
         return hidden_states, hidden_states_ent
 
-class MaskedKnowledgeAGGBlock(torch.nn.module):
-    def __init__(wrd_conf,ent_conf):
-        self.mhra_wrd = MultiHeadRelativeAttention(**wrd_conf)
-        self.mhra_ent = MultiHeadRelativeAttention(**ent_conf)
-        self.dense = nn.Linear(wrd_conf.d_model, wrd_conf.intermediate_size)
-        self.dense_ent = nn.Linear(ent_conf.d_model, wrd_conf.intermediate_size)
-        self.act = nn.GeLU()
-        self ff = KETFeedForward(wrd_conf,ent_conf)
+class MaskedKnowledgeAGGBlock(torch.nn.Module):
+    def __init__(self,wrd_conf,ent_conf):
+        super().__init__()
+        self.mhra_wrd = MultiHeadRelativeAttention(**{ k: wrd_conf[k] for k in mhra_keys })
+        self.mhra_ent = MultiHeadRelativeAttention(**{ k: ent_conf[k] for k in mhra_keys })
+        self.dense = nn.Linear(wrd_conf["d_model"], wrd_conf["intermediate_size"])
+        self.dense_ent = nn.Linear(ent_conf["d_model"], wrd_conf["intermediate_size"])
+        self.act = ReLU()
+        self.ff = KETFeedForward(wrd_conf,ent_conf)
 
     def forward(self,hidden,hidden_ent,mask,mask_ent,r, u, v,r_ent,u_ent,v_ent, mem,mem_ent):
         hidden = self.mhra_wrd(hidden,r=r, u=u, v=v,mask=mask,mem=mem)
@@ -114,12 +153,16 @@ class MaskedKnowledgeAGGBlock(torch.nn.module):
         hidden,hidden_ent = self.ff(intermediate,hidden,hidden_ent)
     
 
+def create_MKAGG_submodules(ctx_len,conf):
+    pos_enc = nn.Embedding(ctx_len, conf["d_model"])
+    drop_emb = nn.Dropout(conf["embed_p"])
+    u = nn.Parameter(torch.Tensor(conf["n_heads"], 1, conf["d_head"]))
+    v = nn.Parameter(torch.Tensor(conf["n_heads"], 1, conf["d_head"]))
+    return pos_enc,drop_emb,u,v
 
-
-class MaskedKnowledgeAGG(torch.nn.module):
+class MaskedKnowledgeAGG(torch.nn.Module):
     def __init__(self,
                  wrd_conf,
-                    #  vocab_sz:int,
                     #  d_model:int,
                     #  d_head:int,
                     #  n_heads:int,
@@ -130,7 +173,6 @@ class MaskedKnowledgeAGG(torch.nn.module):
                     #  ff_p: float=0.,
   
                  ent_conf,
-                    #  vocab_sz_ent: int,
                     #  d_model_ent: int,
                     #  d_head_ent: int,
                     #  n_heads_ent: int,
@@ -145,31 +187,21 @@ class MaskedKnowledgeAGG(torch.nn.module):
                  n_layers:int,
 
                  mask:bool=True,
-                 act: Activation = Activation.ReLU,
-                 double_drop: bool = True,
-                 bias: bool = False,
-                 scale:bool = True,
+
                 ):
         super().__init__()
         # embeding should be done in before this module layers
         # self.token_enc = nn.Embedding(vocab_sz, d_model)
-
-        self.pos_enc_ent = nn.Embedding(ctx_len, d_model_ent)
-        self.pos_enc_wrd = nn.Embedding(ctx_len, d_model)
-        self.drop_emb_wrd = nn.Dropout(embed_p)
-        self.drop_emb_ent = nn.Dropout(embed_p_ent)
-
-        self.u_wrd = nn.Parameter(torch.Tensor(n_heads, 1, d_head)) #Remove 1 for einsum implementation of attention
-        self.u_ent = nn.Parameter(torch.Tensor(n_heads_ent, 1, d_head_ent)) #Remove 1 for einsum implementation of attention
-
-        self.v_wrd = nn.Parameter(torch.Tensor(n_heads, 1, d_head)) #Remove 1 for einsum implementation of attention
-        self.v_ent = nn.Parameter(torch.Tensor(n_heads, 1, d_head)) #Remove 1 for einsum implementation of attention
-
-        self.mem_len,self.n_layers,self.d_model,self.mask = mem_len,n_layers,d_model,mask
-        self.init = False
+        self.pos_enc_wrd, self.drop_emb_wrd, self.u_wrd, self.v_wrd = create_MKAGG_submodules(ctx_len,wrd_conf)
+        self.pos_enc_ent, self.drop_emb_ent, self.u_ent, self.v_ent = create_MKAGG_submodules(ctx_len,ent_conf)
+        self.mem_len,self.n_layers,self.mask = mem_len,n_layers,mask
+        
         self.layers = []
         for i in range(n_layers):
-            layers.append(MaskedKnowledgeAGGBlock(wrd_conf,ent_conf))
+            self.layers.append(MaskedKnowledgeAGGBlock(wrd_conf,ent_conf))
+            
+        self.layers =  nn.ModuleList(self.layers)
+
 
 
     def _update_mems(self, mem,hids):
@@ -212,10 +244,10 @@ class MaskedKnowledgeAGG(torch.nn.module):
         for i, layer in enumerate(self.layers):
             # mem = self.hidden[i] if self.mem_len > 0 else None
 
-            inp,inp_ent = layer(inp,inp_ent, r=pos_enc, u=self.u_wrd, v=self.v_wrd, mask=mask, mem=mem[i],r_net=pos_enc_ent, u_ent=self.u_ent,v_ent=self.v_ent,mask_ent=mask_ent,mem=mem_ent[i])
+            inp,inp_ent = layer(inp,inp_ent, r=pos_enc, u=self.u_wrd, v=self.v_wrd, mask=mask, mem=mem[i],r_net=pos_enc_ent, u_ent=self.u_ent,v_ent=self.v_ent,mask_ent=mask_ent,mem_ent=mem_ent[i])
             hids.append(inp)
             hids_ent.append(inp_ent)
-        core_out = inp[:,-x_len:]
+        # core_out = inp[:,-x_len:]
 
         mem =  self._update_mems(mem,hids)
         mem_ent = self._update_mems(mem_ent,hids_ent)
@@ -225,16 +257,8 @@ class MaskedKnowledgeAGG(torch.nn.module):
 
 # -
 
-len(mems_2)
+model = MaskedKnowledgeAGG(default_wrd_conf,default_ent_conf,512,512,5)
 
-mems_2[0].shape
-
-predicted_token
-
-list(map(lambda x:x.item(),predictions_2[0, :, :].argmax(1)))
-
-predictions_2[0, -1, :]
-
-tokenizer.convert_ids_to_tokens([predicted_index])
+model
 
 
